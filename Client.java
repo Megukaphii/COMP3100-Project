@@ -1,9 +1,10 @@
 import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.stream.Collector;
 import java.util.stream.Collectors;
+import classes.Server;
+import classes.Job;
+import classes.Tuple;
 
 public class Client {
     public static void printErrorMessage(String expected, String actual) {
@@ -24,41 +25,31 @@ public class Client {
             DataOutputStream dout = new DataOutputStream(s.getOutputStream());
         ) {
             ArrayList<Job> jobs = new ArrayList<Job>();
-            
-            byte[] received = new byte[32];
 
             send(dout, "HELO");
         
-            receive(received, "OK", din);
+            receive("OK", din);
 
             send(dout, "AUTH shadoweagle7");
             
-            receive(received, "OK", din);
+            receive("OK", din);
 
             send(dout, "REDY");
 
-            String job = receive(received, 64, din); // JOBN ...
+            String job = receive(din); // JOBN ...
             jobs.add(new Job(job));
 
             send(dout, "GETS All");
 
-            String rawDataString = receive(received, 12, din); // DATA nRecs recLen
-
-            Data dataCommand = (Data)parseCommand(rawDataString);
-
-            int[] dataBytes = dataCommand.execute();
-            int totalDataSize = dataBytes[0] * dataBytes[1];
+            receive(din); // DATA nRecs recLen
 
             send(dout, "OK");
 
-            received = new byte[totalDataSize];
-            String serversString = receive(received, totalDataSize, din);
+            String serversString = receive(din);
 
             send(dout, "OK");
 
-            receive(received, ".", din);
-
-            //System.out.println(new String(received));
+            receive(".", din);
 
             // The magic infinite debug loop
             // int i = 0; while (i < Integer.MAX_VALUE) { i++; }
@@ -92,21 +83,19 @@ public class Client {
             
             while (!current.getType().equals("NONE")) {
                 if (current.getType().equals("JOBN")) {
-                    Tuple selected = selectServer(current, servers, din, dout);
+                    Tuple selected = selectServer(current, servers);
 
-                    send(dout, "SCHD " + current.getJobID() + " " + selected.x + " " + selected.y);
+                    send(dout, "SCHD " + current.getJobID() + " " + selected.getX() + " " + selected.getY());
 
-                    receive(received, 64, din);
+                    receive(din);
 
                     send(dout, "REDY");
                 } else if (current.getType().equals("JCPL")) {
                     send(dout, "REDY");
                 }
 
-                current = new Job(receive(received, 64, din));
+                current = new Job(receive(din));
             }
-            
-            //send(dout, "OK");
 
             send(dout, "QUIT");
 
@@ -121,22 +110,25 @@ public class Client {
         dout.flush();
     }
 
-    public static String receive(byte[] data, int expectedSize, DataInputStream din) throws IOException {
-        data = new byte[expectedSize];
-        if (din.read(data) >= expectedSize) {
-            printErrorMessage(expectedSize, data.length);
+    public static String receive(DataInputStream din) throws IOException {
+        int size = 4096;
+        byte[] data = new byte[size];
+        if (din.read(data) >= size) {
+            printErrorMessage(size, data.length);
             //System.out.println("Server: " + new String(data, 0, expectedSize));
             //throw new IllegalArgumentException("Server gave unexpected response");
         }
 
-        System.out.println("Server: " + new String(data));
+        String receivedString = new String(data).trim();
 
-        return new String(data).trim();
+        System.out.println("Server: " + receivedString);
+
+        return receivedString;
     }
 
-    public static String receive(byte[] data, String expectedString, DataInputStream din) throws IOException, IllegalArgumentException {
+    public static String receive(String expectedString, DataInputStream din) throws IOException, IllegalArgumentException {
         int expectedSize = expectedString.length();
-        data = new byte[expectedSize];
+        byte[] data = new byte[expectedSize];
 
         if (din.read(data) >= expectedSize) {
             //System.out.println("Server: " + new String(data, 0, expectedSize));
@@ -155,7 +147,7 @@ public class Client {
         return receivedString;
     }
 
-    public static Tuple selectServer(Job current, ArrayList<Server> servers, DataInputStream din, DataOutputStream dout) throws IOException {
+    public static Tuple selectServer(Job current, ArrayList<Server> servers) throws IOException {
         String sType = "lol";
         int sID = 0;
 
@@ -190,151 +182,5 @@ public class Client {
         sID = compatibleServers.get(0).getServerID();
 
         return new Tuple(sType, sID);
-    }
-
-    public static class Server {
-        public static final String STATE_ACTIVE = "active";
-        public static final String STATE_INACTIVE = "inactive";
-        public static final String STATE_IDLE = "idle";
-
-        // serverType serverID state curStartTime core mem disk #wJobs #rJobs [#failures totalFailtime mttf mttr madf lastStartTime]
-        // e.g. joon 1 inactive -1 4 16000 64000 0 0
-
-        private String serverType;
-        private int serverID;
-        private String state;
-        private int curStartTime;
-        private int cores;
-        private int memory;
-        private int disk;
-        private int wJobs;
-        private int rJobs;
-
-        public Server(String serverState) {
-            String[] temp = serverState.split(" ");
-
-            this.serverType = temp[0];
-            this.serverID = Integer.parseInt(temp[1]);
-            this.state = temp[2];
-
-            this.cores = Integer.parseInt(temp[4]);
-            this.rJobs = Integer.parseInt(temp[8]);
-        }
-
-        public String getServerType() {
-            return this.serverType;
-        }
-
-        public int getServerID() {
-            return this.serverID;
-        }
-
-        public String getState() {
-            return this.state;
-        }
-
-        public int getNumberOfCores() {
-            return this.cores;
-        }
-
-        public void printServer() {
-            System.out.println(this.serverType + " " + this.serverID + " " + this.state + " " + this.cores);
-        }
-    }
-
-    public static class Job {
-        // JOBN submitTime jobID estRuntime core memory disk
-        
-        private String type;
-        private int submitTime;
-        private int jobID;
-        private int estRunTime;
-        private int core;
-        private int memory;
-        private int disk;
-                
-        public Job(String state) {
-            String[] temp = state.split(" ");
-            
-            this.type = temp[0];
-            if (this.type.equals("JOBN")) {
-                this.submitTime = Integer.parseInt(temp[1]);
-                this.jobID = Integer.parseInt(temp[2]);
-                this.estRunTime = Integer.parseInt(temp[3]);
-                this.core = Integer.parseInt(temp[4]);
-                this.memory = Integer.parseInt(temp[5]);
-                this.disk = Integer.parseInt(temp[6]);
-            }
-        }
-
-        public int getJobID() {
-            return this.jobID;
-        }
-
-        public String getType() {
-            return this.type;
-        }
-
-        public int getCore() {
-            return this.core;
-        }
-    }
-
-    public static class Tuple {
-        // JOBN submitTime jobID estRuntime core memory disk
-        
-        private String x;
-        private int y;
-                
-        public Tuple(String x, int y) {
-            this.x = x;
-            this.y = y;
-        }
-
-        public String getX() {
-            return this.x;
-        }
-
-        public int getY() {
-            return this.y;
-        }
-    }
-
-    public static class Data {
-        private int numberOfRecords, recordLength;
-
-        public Data(int nRec, int recLen) throws IllegalArgumentException {
-            if (nRec <= 0 || recLen <= 0) {
-                throw new IllegalArgumentException("Cannot have 0 or less records. Each record's size must be greater than 0");
-            }
-
-            this.numberOfRecords = nRec;
-            this.recordLength = recLen;
-        }
-
-        public int[] execute() {
-            return new int[]{numberOfRecords, recordLength};
-        }
-    }
-
-    public static Data parseCommand(String str) 
-        throws NumberFormatException, ArrayIndexOutOfBoundsException, IllegalArgumentException, NullPointerException {
-        if (str == null || str.length() == 0) {
-            throw new NullPointerException("Invalid input");
-        }
-
-        String[] args = str.split(" ");
-
-        if (args == null || args.length == 0) {
-            throw new ArrayIndexOutOfBoundsException("Invalid command");
-        }
-
-        if (args[0].equals("DATA")) {
-            int numberOfRecords = Integer.parseInt(args[1]), recordLength = Integer.parseInt(args[2]);
-
-            return new Data(numberOfRecords, recordLength);
-        }
-
-        throw new IllegalArgumentException("Invalid command");
     }
 }
