@@ -7,6 +7,9 @@ import classes.Job;
 import classes.Tuple;
 
 public class Client {
+    public static final int JOB_RUNNING = 2;
+    public static String algorithm = "allToLargest";
+
     public static void printErrorMessage(String expected, String actual) {
         System.out.println("Expected: " + expected + " | Actual: " + actual);
     }
@@ -24,30 +27,34 @@ public class Client {
             DataInputStream din = new DataInputStream(s.getInputStream());
             DataOutputStream dout = new DataOutputStream(s.getOutputStream());
         ) {
+            if (args.length > 0) {
+                algorithm = args[0];
+            }
+
             ArrayList<Job> jobs = new ArrayList<Job>();
 
-            send(dout, "HELO");
+            send("HELO", dout);
         
             receive("OK", din);
 
-            send(dout, "AUTH shadoweagle7");
+            send("AUTH corymacdonald", dout);
             
             receive("OK", din);
 
-            send(dout, "REDY");
+            send("REDY", dout);
 
             String job = receive(din); // JOBN ...
             jobs.add(new Job(job));
 
-            send(dout, "GETS All");
+            send("GETS All", dout);
 
             receive(din); // DATA nRecs recLen
 
-            send(dout, "OK");
+            send("OK", dout);
 
             String serversString = receive(din);
 
-            send(dout, "OK");
+            send("OK", dout);
 
             receive(".", din);
 
@@ -83,28 +90,28 @@ public class Client {
             
             while (!current.getType().equals("NONE")) {
                 if (current.getType().equals("JOBN")) {
-                    Tuple selected = selectServer(current, servers);
+                    Tuple selected = selectServer(current, servers, dout, din);
 
-                    send(dout, "SCHD " + current.getJobID() + " " + selected.getX() + " " + selected.getY());
+                    send("SCHD " + current.getJobID() + " " + selected.getX() + " " + selected.getY(), dout);
 
                     receive(din);
 
-                    send(dout, "REDY");
+                    send("REDY", dout);
                 } else if (current.getType().equals("JCPL")) {
-                    send(dout, "REDY");
+                    send("REDY", dout);
                 }
 
                 current = new Job(receive(din));
             }
 
-            send(dout, "QUIT");
+            send("QUIT", dout);
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public static void send(DataOutputStream dout, String toSend) throws IOException {
+    public static void send(String toSend, DataOutputStream dout) throws IOException {
         System.out.println("Sending " + toSend);
         dout.write(toSend.getBytes());
         dout.flush();
@@ -147,7 +154,15 @@ public class Client {
         return receivedString;
     }
 
-    public static Tuple selectServer(Job current, ArrayList<Server> servers) throws IOException {
+    public static Tuple selectServer(Job current, ArrayList<Server> servers, DataOutputStream dout, DataInputStream din) throws IOException {
+        if (algorithm.equals("allToLargest")) {
+            return allToLargest(current, servers);
+        } else {
+            return turnaroundTime(current, servers, dout, din);
+        }
+    }
+
+    public static Tuple allToLargest(Job current, ArrayList<Server> servers) throws IOException {
         String sType = "lol";
         int sID = 0;
 
@@ -156,30 +171,42 @@ public class Client {
             (server) -> (server.getNumberOfCores() >= coreCount)
         ).collect(Collectors.toList());
 
-        // int minJobs = 1;
-
-        // for (int i = 0; i < compatibleServers.size(); i++) {
-        //     send(dout, "CNTJ " + compatibleServers.get(i).getServerType() + " " + compatibleServers.get(i).getServerID() + " " + 2 /* the running job state */ );
-
-        //     byte[] received = new byte[4];
-        //     int cntj = Integer.parseInt(receive(received, 4, din));
-
-        //     if (cntj < minJobs) {
-        //         sType = compatibleServers.get(i).getServerType();
-        //         sID = compatibleServers.get(i).getServerID();
-        //         break;
-        //     } else {
-        //         minJobs = cntj;
-        //     }
-        // }
-
-        // if (sType.equals("lol")) {
-        //     sType = compatibleServers.get(0).getServerType();
-        //     sID = compatibleServers.get(0).getServerID();
-        // }
-
         sType = compatibleServers.get(0).getServerType();
         sID = compatibleServers.get(0).getServerID();
+
+        return new Tuple(sType, sID);
+    }
+
+    public static Tuple turnaroundTime(Job current, ArrayList<Server> servers, DataOutputStream dout, DataInputStream din) throws IOException {
+        String sType = "lol";
+        int sID = 0;
+
+        // REPLACE WITH GETS CAPABLE
+        final int coreCount = current.getCore();
+        ArrayList<Server> compatibleServers = (ArrayList<Server>)servers.stream().filter(
+            (server) -> (server.getNumberOfCores() >= coreCount)
+        ).collect(Collectors.toList());
+
+        int minJobs = 1;
+
+        for (int i = 0; i < compatibleServers.size(); i++) {
+            send("CNTJ " + compatibleServers.get(i).getServerType() + " " + compatibleServers.get(i).getServerID() + " " + JOB_RUNNING, dout);
+
+            int cntj = Integer.parseInt(receive(din));
+
+            if (cntj < minJobs) {
+                sType = compatibleServers.get(i).getServerType();
+                sID = compatibleServers.get(i).getServerID();
+                break;
+            } else {
+                minJobs = cntj;
+            }
+        }
+
+        if (sType.equals("lol")) {
+            sType = compatibleServers.get(0).getServerType();
+            sID = compatibleServers.get(0).getServerID();
+        }
 
         return new Tuple(sType, sID);
     }
