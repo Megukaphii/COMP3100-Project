@@ -127,6 +127,10 @@ public class Server {
         return coresReq;
     }
 
+    public boolean isCompatibleWithJob(Job a) {
+        return a.getCore() <= this.getNumberOfCores() && a.getDisk() <= this.getDisk() && a.getMemory() <= this.getMemory();
+    }
+
     public void printServer() {
         System.out.println(this.serverType + " " + this.serverID + " " + this.state + " " + this.cores);
     }

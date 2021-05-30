@@ -91,9 +91,9 @@ public class Client {
 
             while (!current.getType().equals("NONE")) {
                 if (current.getType().equals("JOBN")) {
-                    final int coreCount = current.getCore();
+                    final Job filterBy = current;
                     ArrayList<Server> compatibleServers = (ArrayList<Server>)servers.stream().filter(
-                        (server) -> (server.getNumberOfCores() >= coreCount)
+                        (server) -> (server.isCompatibleWithJob(filterBy))
                     ).collect(Collectors.toList());
 
                     Tuple selected = selectServer(current, compatibleServers, dout, din);
@@ -102,7 +102,7 @@ public class Client {
 
                     receive(din);
 
-                    // Server server = compatibleServers.get(findServer(compatibleServers, selected.getX(), selected.getY()));
+                    Server server = compatibleServers.get(findServer(compatibleServers, selected.getX(), selected.getY()));
                     // servers.get(servers.indexOf(server)).AddJob(current);
 
                     send("REDY", dout);
@@ -207,47 +207,43 @@ public class Client {
         String sType = "lol";
         int sID = 0;
 
-        final int coreCount = current.getCore();
-        // int minJobs = 1;
-        send("CNTJ " + servers.get(0).getServerType() + " " + servers.get(0).getServerID() + " " + JOB_WAITING, dout);
-
-        int waitingMin = Integer.parseInt(receive(din));
-        int waitingMinIndex = 0;
+        float fitnessMin = 0;
+        int fitnessMinIndex = 0;
 
         for (int i = 0; i < servers.size(); i++) {
             Server testingServer = servers.get(i);
-            System.out.println(testingServer.getNumberOfCores());
-            send("CNTJ " + testingServer.getServerType() + " " + testingServer.getServerID() + " " + JOB_RUNNING, dout);
-
-            int runningJobs = Integer.parseInt(receive(din));
 
             send("CNTJ " + testingServer.getServerType() + " " + testingServer.getServerID() + " " + JOB_WAITING, dout);
 
             int waitingJobs = Integer.parseInt(receive(din));
+
+            send("CNTJ " + testingServer.getServerType() + " " + testingServer.getServerID() + " " + JOB_RUNNING, dout);
+
+            int runningJobs = Integer.parseInt(receive(din));
+
+            float fitness = (waitingJobs * 8f) + runningJobs + (testingServer.getNumberOfCores() - current.getCore());
+
+            if (i == 0) {
+                fitnessMin = fitness;
+            }
 
             // Use LSTJ to get the jobs and do stuff from there
 
             // Idea of turnaround time is to get the job on a server with the least waiting time until it can be run, i.e. the least waiting jobs
             // Even better if you can just fit the job alongside another running job on the server
 
-            int availableCores = testingServer.getAvailableCores();
+            // int availableCores = testingServer.getAvailableCores();
             // int waitingJobs = testingServer.getWaitingJobCount();
             // int runningJobs = testingServer.getRunningJobCount();
 
-            if (availableCores > coreCount) {
-                sType = servers.get(i).getServerType();
-                sID = servers.get(i).getServerID();
-                break;
-            } else if (waitingJobs < waitingMin) {
-                waitingMin = waitingJobs;
-                waitingMinIndex = i;
+            if (fitness < fitnessMin) {
+                fitnessMin = fitness;
+                fitnessMinIndex = i;
             }
         }
-
-        if (sType.equals("lol")) {
-            sType = servers.get(waitingMinIndex).getServerType();
-            sID = servers.get(waitingMinIndex).getServerID();
-        }
+        
+        sType = servers.get(fitnessMinIndex).getServerType();
+        sID = servers.get(fitnessMinIndex).getServerID();
 
         return new Tuple(sType, sID);
     }
