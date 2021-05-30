@@ -7,8 +7,9 @@ import classes.Job;
 import classes.Tuple;
 
 public class Client {
+    public static final int JOB_WAITING = 1;
     public static final int JOB_RUNNING = 2;
-    public static String algorithm = "allToLargest";
+    public static String algorithm = "turnaroundTime";
 
     public static void printErrorMessage(String expected, String actual) {
         System.out.println("Expected: " + expected + " | Actual: " + actual);
@@ -72,14 +73,14 @@ public class Client {
 
             // Filter servers
             servers.removeIf((server) -> {
-                return !(server.getState().equals(Server.STATE_IDLE) || server.getState().equals(Server.STATE_INACTIVE));
+                return (server.getState().equals(Server.STATE_UNAVAILABLE));
             });
 
             // Sort servers
             servers.sort((Server l, Server r) -> {
-                if (l.getNumberOfCores() > r.getNumberOfCores()) {
+                if (l.getNumberOfCores() < r.getNumberOfCores()) {
                     return -1;
-                } else if (l.getNumberOfCores() < r.getNumberOfCores()) {
+                } else if (l.getNumberOfCores() > r.getNumberOfCores()) {
                     return 1;
                 }
 
@@ -87,17 +88,27 @@ public class Client {
             });
 
             Job current = jobs.get(0);
-            
+
             while (!current.getType().equals("NONE")) {
                 if (current.getType().equals("JOBN")) {
-                    Tuple selected = selectServer(current, servers, dout, din);
+                    final int coreCount = current.getCore();
+                    ArrayList<Server> compatibleServers = (ArrayList<Server>)servers.stream().filter(
+                        (server) -> (server.getNumberOfCores() >= coreCount)
+                    ).collect(Collectors.toList());
+
+                    Tuple selected = selectServer(current, compatibleServers, dout, din);
 
                     send("SCHD " + current.getJobID() + " " + selected.getX() + " " + selected.getY(), dout);
 
                     receive(din);
 
+                    // Server server = compatibleServers.get(findServer(compatibleServers, selected.getX(), selected.getY()));
+                    // servers.get(servers.indexOf(server)).AddJob(current);
+
                     send("REDY", dout);
                 } else if (current.getType().equals("JCPL")) {
+                    // actionJCPL(current, servers);
+
                     send("REDY", dout);
                 }
 
@@ -162,6 +173,21 @@ public class Client {
         }
     }
 
+    public static void actionJCPL(Job completed, ArrayList<Server> servers) {
+        int server = findServer(servers, completed.getServerType(), completed.getServerID());
+        servers.get(server).RemoveJob(completed.getJobID());
+    }
+
+    public static int findServer(ArrayList<Server> serverList, String serverType, int serverID) {
+        for (int i = 0; i < serverList.size(); i++) {
+            Server checkServer = serverList.get(i);
+            if (checkServer.getServerType().equals(serverType) && checkServer.getServerID() == serverID) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     public static Tuple allToLargest(Job current, ArrayList<Server> servers) throws IOException {
         String sType = "lol";
         int sID = 0;
@@ -181,31 +207,46 @@ public class Client {
         String sType = "lol";
         int sID = 0;
 
-        // REPLACE WITH GETS CAPABLE
         final int coreCount = current.getCore();
-        ArrayList<Server> compatibleServers = (ArrayList<Server>)servers.stream().filter(
-            (server) -> (server.getNumberOfCores() >= coreCount)
-        ).collect(Collectors.toList());
+        // int minJobs = 1;
+        send("CNTJ " + servers.get(0).getServerType() + " " + servers.get(0).getServerID() + " " + JOB_WAITING, dout);
 
-        int minJobs = 1;
+        int waitingMin = Integer.parseInt(receive(din));
+        int waitingMinIndex = 0;
 
-        for (int i = 0; i < compatibleServers.size(); i++) {
-            send("CNTJ " + compatibleServers.get(i).getServerType() + " " + compatibleServers.get(i).getServerID() + " " + JOB_RUNNING, dout);
+        for (int i = 0; i < servers.size(); i++) {
+            Server testingServer = servers.get(i);
+            System.out.println(testingServer.getNumberOfCores());
+            send("CNTJ " + testingServer.getServerType() + " " + testingServer.getServerID() + " " + JOB_RUNNING, dout);
 
-            int cntj = Integer.parseInt(receive(din));
+            int runningJobs = Integer.parseInt(receive(din));
 
-            if (cntj < minJobs) {
-                sType = compatibleServers.get(i).getServerType();
-                sID = compatibleServers.get(i).getServerID();
+            send("CNTJ " + testingServer.getServerType() + " " + testingServer.getServerID() + " " + JOB_WAITING, dout);
+
+            int waitingJobs = Integer.parseInt(receive(din));
+
+            // Use LSTJ to get the jobs and do stuff from there
+
+            // Idea of turnaround time is to get the job on a server with the least waiting time until it can be run, i.e. the least waiting jobs
+            // Even better if you can just fit the job alongside another running job on the server
+
+            int availableCores = testingServer.getAvailableCores();
+            // int waitingJobs = testingServer.getWaitingJobCount();
+            // int runningJobs = testingServer.getRunningJobCount();
+
+            if (availableCores > coreCount) {
+                sType = servers.get(i).getServerType();
+                sID = servers.get(i).getServerID();
                 break;
-            } else {
-                minJobs = cntj;
+            } else if (waitingJobs < waitingMin) {
+                waitingMin = waitingJobs;
+                waitingMinIndex = i;
             }
         }
 
         if (sType.equals("lol")) {
-            sType = compatibleServers.get(0).getServerType();
-            sID = compatibleServers.get(0).getServerID();
+            sType = servers.get(waitingMinIndex).getServerType();
+            sID = servers.get(waitingMinIndex).getServerID();
         }
 
         return new Tuple(sType, sID);

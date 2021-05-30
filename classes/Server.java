@@ -1,10 +1,13 @@
 package classes;
 
+import java.util.ArrayList;
+
 public class Server {
     // serverType serverID state curStartTime core mem disk #wJobs #rJobs [#failures totalFailtime mttf mttr madf lastStartTime]
     public static final String STATE_ACTIVE = "active";
     public static final String STATE_INACTIVE = "inactive";
     public static final String STATE_IDLE = "idle";
+    public static final String STATE_UNAVAILABLE = "unavailable";
 
     private String serverType;
     private int serverID;
@@ -15,6 +18,8 @@ public class Server {
     private int disk;
     private int wJobs;
     private int rJobs;
+    private ArrayList<Job> waitingJobs;
+    private ArrayList<Job> runningJobs;
 
     public Server(String serverState) {
         String[] temp = serverState.split(" ");
@@ -28,6 +33,17 @@ public class Server {
         this.disk = Integer.parseInt(temp[6]);
         this.wJobs = Integer.parseInt(temp[7]);
         this.rJobs = Integer.parseInt(temp[8]);
+
+        Job standInJob = new Job("JOBN 0 0 400 1 4 500");
+
+        this.waitingJobs = new ArrayList<>();
+        // for (int i = 0; i < this.wJobs; i++) {
+        //     this.waitingJobs.add(standInJob);
+        // }
+        this.runningJobs = new ArrayList<>();
+        // for (int i = 0; i < this.rJobs; i++) {
+        //     this.runningJobs.add(standInJob);
+        // }
     }
 
     public String getServerType() {
@@ -54,7 +70,75 @@ public class Server {
         return this.disk;
     }
 
+    public void AddJob(Job newJob) {
+        if (getAvailableCores() > newJob.getCore()) {
+            runningJobs.add(newJob);
+        } else {
+            waitingJobs.add(newJob);
+        }
+    }
+
+    public void RemoveJob(int jobID) {
+        for (int i = 0; i < runningJobs.size(); i++) {
+            if (runningJobs.get(i).getJobID() == jobID) {
+                runningJobs.remove(i);
+            }
+        }
+        updateRunningJobs();
+    }
+
+    public void updateRunningJobs() {
+        int availableCores = getAvailableCores();
+        boolean[] removeJobs = new boolean[this.waitingJobs.size()];
+
+        for (int i = 0; i < this.waitingJobs.size(); i++) {
+            Job checkingJob = this.waitingJobs.get(i);
+            if (checkingJob.getCore() < availableCores) {
+                removeJobs[i] = true;
+                this.runningJobs.add(checkingJob);
+                availableCores -= checkingJob.getCore();
+            } else {
+                // Possibly break if capable job isn't found?
+                removeJobs[i] = false;
+            }
+        }
+
+        for (int i = this.waitingJobs.size() - 1; i > 0; i--) {
+            if (removeJobs[i]) {
+                this.waitingJobs.remove(i);
+            }
+        }
+    }
+
+    public int getWaitingJobCount() {
+        return this.waitingJobs.size();
+    }
+
+    public int getRunningJobCount() {
+        return this.runningJobs.size();
+    }
+
+    public int getAvailableCores() {
+        int coresReq = 0;
+        for (int i = 0; i < this.runningJobs.size(); i++) {
+            coresReq += this.runningJobs.get(i).getCore();
+        }
+
+        return coresReq;
+    }
+
     public void printServer() {
         System.out.println(this.serverType + " " + this.serverID + " " + this.state + " " + this.cores);
+    }
+
+    public boolean equals(Object obj) {
+        if (obj == this) {
+            return true;
+        }
+        if (!(obj instanceof Job)) {
+            return false;
+        }
+        Server compare = (Server) obj;
+        return this.serverType == compare.getServerType() && this.serverID == compare.getServerID();
     }
 }
