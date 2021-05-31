@@ -102,7 +102,7 @@ public class Client {
 
                     receive(din);
 
-                    Server server = compatibleServers.get(findServer(compatibleServers, selected.getX(), selected.getY()));
+                    // Server server = compatibleServers.get(findServer(compatibleServers, selected.getX(), selected.getY()));
                     // servers.get(servers.indexOf(server)).AddJob(current);
 
                     send("REDY", dout);
